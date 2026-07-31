@@ -1,0 +1,49 @@
+{
+  "name": "bivoo-agent-widget",
+  "version": "0.1.0",
+  "description": "Widget de chat con IA (Bi-voo Agents): se instala con npm en un proyecto React/Next, o con un <script> en cualquier otro sitio.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepare": "tsup"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JeanCorreaBarros/WidGet_Bi-voo_Agents.git"
+  },
+  "keywords": [
+    "chat",
+    "widget",
+    "ai",
+    "assistant",
+    "gateway",
+    "bivoo"
+  ]
+}

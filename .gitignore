@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+
+# dist/ SÍ se versiona a propósito: quien instale con
+# `npm install github:...` no tiene por qué tener tsup ni compilar nada — se
+# usa el build ya hecho, tal como está en el repo.
