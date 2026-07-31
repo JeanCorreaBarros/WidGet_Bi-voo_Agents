@@ -179,8 +179,17 @@ export function createAgentRoutes(opciones: CrearRutasOpciones = {}) {
       return Response.json({ ok: false, detalle: "Falta el App Token" }, { status: 400 });
     }
 
+    // Igual que el token: si no se manda `enabled`, se conserva el que ya
+    // había, no se asume "encendido". Importa porque el panel de Conexión
+    // (widget → engranaje) YA NO trae este interruptor — apagar el agente
+    // desde ahí escondería también el propio engranaje que lo reactivaría,
+    // dejando a quien lo hizo sin forma de deshacerlo salvo entrando por
+    // fuera del widget. Con esto, aunque algún día alguien vuelva a mandar
+    // el campo desde otro sitio, omitirlo nunca reactiva sin querer.
+    const enabled = typeof body.enabled === "boolean" ? body.enabled : (actual?.enabled ?? true);
+
     const conexion: ConexionAgente = {
-      enabled: body.enabled !== false,
+      enabled,
       gatewayUrl,
       appToken,
       toolSecret: toolSecret || undefined,

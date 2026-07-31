@@ -1360,7 +1360,10 @@ function SettingsPanel({
   const [noDisponible, setNoDisponible] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState("");
   const [appToken, setAppToken] = useState("");
-  const [enabled, setEnabled] = useState(true);
+  // Sin `setEnabled`: se MUESTRA, no se edita desde aquí. Editable solo
+  // fuera del widget (ver el aviso donde se pinta más abajo) — si este
+  // panel pudiera apagar al agente, se escondería a sí mismo con él.
+  const [enabled, setEnabled_] = useState(true);
   const [hasAppToken, setHasAppToken] = useState(false);
 
   const [probando, setProbando] = useState(false);
@@ -1385,7 +1388,7 @@ function SettingsPanel({
       const c: ConexionMostrada | null = d?.conexion ?? null;
       if (c) {
         setGatewayUrl(c.gatewayUrl ?? "");
-        setEnabled(c.enabled ?? true);
+        setEnabled_(c.enabled ?? true);
         setHasAppToken(Boolean(c.hasAppToken));
       }
     } catch {
@@ -1421,10 +1424,13 @@ function SettingsPanel({
     setGuardando(true);
     setMsgGuardar("");
     try {
+      // Sin `enabled`: apagarlo desde aquí escondería el propio panel que lo
+      // reactivaría. Para eso está la app anfitriona (fuera del widget), o
+      // el propio panel del gateway.
       const r = await fetch(`${endpoint}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gatewayUrl, appToken: appToken || undefined, enabled }),
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || undefined }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -1514,10 +1520,16 @@ function SettingsPanel({
                 </p>
               </div>
 
-              <label style={{ ...S.settingsRow, marginBottom: 12, cursor: "pointer" }}>
-                <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-                <span style={{ fontSize: 12.5, color: "#4b4f63" }}>Agente activo</span>
-              </label>
+              {/* Se muestra, no se edita: encender/apagar el agente desde
+                  ESTE panel escondería el propio panel junto con él. Se
+                  cambia desde fuera del widget — la app anfitriona o el
+                  panel del gateway. */}
+              <div style={{ ...S.settingsRow, marginBottom: 12, justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12.5, color: "#4b4f63" }}>
+                  {enabled ? "🟢 Agente activo" : "⚪ Agente apagado"}
+                </span>
+                <span style={{ fontSize: 11.5, color: "#8b8fa3" }}>Se cambia fuera de aquí</span>
+              </div>
 
               <div style={S.settingsRow}>
                 <button

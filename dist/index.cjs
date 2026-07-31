@@ -956,7 +956,7 @@ function SettingsPanel({
   const [noDisponible, setNoDisponible] = (0, import_react.useState)(false);
   const [gatewayUrl, setGatewayUrl] = (0, import_react.useState)("");
   const [appToken, setAppToken] = (0, import_react.useState)("");
-  const [enabled, setEnabled] = (0, import_react.useState)(true);
+  const [enabled, setEnabled_] = (0, import_react.useState)(true);
   const [hasAppToken, setHasAppToken] = (0, import_react.useState)(false);
   const [probando, setProbando] = (0, import_react.useState)(false);
   const [resultadoPrueba, setResultadoPrueba] = (0, import_react.useState)(null);
@@ -979,7 +979,7 @@ function SettingsPanel({
       const c = (_a = d == null ? void 0 : d.conexion) != null ? _a : null;
       if (c) {
         setGatewayUrl((_b = c.gatewayUrl) != null ? _b : "");
-        setEnabled((_c = c.enabled) != null ? _c : true);
+        setEnabled_((_c = c.enabled) != null ? _c : true);
         setHasAppToken(Boolean(c.hasAppToken));
       }
     } catch {
@@ -1015,7 +1015,7 @@ function SettingsPanel({
       const r = await fetch(`${endpoint}/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gatewayUrl, appToken: appToken || void 0, enabled })
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || void 0 })
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -1105,9 +1105,9 @@ function SettingsPanel({
           ),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: S.settingsHint, children: hasAppToken ? "Ya hay uno guardado. D\xE9jalo en blanco para conservarlo." : "Lo consigues en tu panel del gateway \u2192 el agente \u2192 Desarrollo \u2192 appToken." })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...S.settingsRow, marginBottom: 12, cursor: "pointer" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: enabled, onChange: (e) => setEnabled(e.target.checked) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 12.5, color: "#4b4f63" }, children: "Agente activo" })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { ...S.settingsRow, marginBottom: 12, justifyContent: "space-between" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 12.5, color: "#4b4f63" }, children: enabled ? "\u{1F7E2} Agente activo" : "\u26AA Agente apagado" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11.5, color: "#8b8fa3" }, children: "Se cambia fuera de aqu\xED" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsRow, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)(

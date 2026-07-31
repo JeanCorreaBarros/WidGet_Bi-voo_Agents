@@ -159,6 +159,23 @@ const params = (ruta: string[]) => ({ params: Promise.resolve({ ruta }) });
     });
     ok((await rProbarTrasMascara.json()).ok === true, "el token real SIGUE siendo el válido, no quedó pisado por la máscara");
 
+    /* ---------- 'enabled' se conserva si no se manda ----------
+       El panel de Conexión del widget YA NO tiene interruptor de
+       encendido/apagado (apagar el agente desde ahí escondería el propio
+       panel). Que el formulario deje de mandar `enabled` no debe
+       reactivar el agente sin que nadie lo haya pedido. */
+    console.log("\n--- 'enabled' no se resetea al omitirlo ---");
+
+    ok((await (await get(["config"])).json()).conexion.enabled === false, "sigue apagado tras el guardado anterior");
+
+    const rSinEnabled = await put({ gatewayUrl: gateway.base, appToken: "app_token-bueno" }); // sin 'enabled'
+    ok(rSinEnabled.status === 200, `guardar sin 'enabled' no falla (${rSinEnabled.status})`);
+    const trasOmitir = await (await get(["config"])).json();
+    ok(trasOmitir.conexion.enabled === false, "y SIGUE apagado — omitirlo no lo reactivó por accidente");
+
+    // Se reactiva de vuelta para el resto de la prueba (sync-tools lo necesita).
+    await put({ gatewayUrl: gateway.base, appToken: "app_token-bueno", enabled: true });
+
     /* ---------- probar conexión ---------- */
     console.log("\n--- probar conexión ---");
 

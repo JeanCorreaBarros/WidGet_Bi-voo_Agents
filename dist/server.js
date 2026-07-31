@@ -239,7 +239,7 @@ function createAgentRoutes(opciones = {}) {
     return new Response("No encontrado", { status: 404 });
   }
   async function PUT2(req, ctx) {
-    var _a2, _b2, _c;
+    var _a2, _b2, _c, _d;
     const { ruta = [] } = await ctx.params;
     if (ruta[0] !== "config") return new Response("No encontrado", { status: 404 });
     const bloqueo = await exigirAdmin(req);
@@ -257,8 +257,9 @@ function createAgentRoutes(opciones = {}) {
     if (!appToken) {
       return Response.json({ ok: false, detalle: "Falta el App Token" }, { status: 400 });
     }
+    const enabled = typeof body.enabled === "boolean" ? body.enabled : (_d = actual == null ? void 0 : actual.enabled) != null ? _d : true;
     const conexion = {
-      enabled: body.enabled !== false,
+      enabled,
       gatewayUrl,
       appToken,
       toolSecret: toolSecret || void 0
