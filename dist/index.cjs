@@ -255,6 +255,7 @@ function AgentChat({
   const [image, setImage] = (0, import_react.useState)(null);
   const [listening, setListening] = (0, import_react.useState)(false);
   const [menuOpen, setMenuOpen] = (0, import_react.useState)(false);
+  const [panelPropio, setPanelPropio] = (0, import_react.useState)(false);
   const [unread, setUnread] = (0, import_react.useState)(0);
   const [peek, setPeek] = (0, import_react.useState)(null);
   const [celebra, setCelebra] = (0, import_react.useState)(false);
@@ -629,12 +630,12 @@ function AgentChat({
             subtitle
           ] })
         ] }),
-        showSettings && onOpenSettings && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        showSettings && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "button",
           {
             "aria-label": "Configurar Bi-voo Agents",
             title: "Configurar Bi-voo Agents",
-            onClick: onOpenSettings,
+            onClick: () => onOpenSettings ? onOpenSettings() : setPanelPropio(true),
             style: S.close,
             children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GearGlyph, { color: "#6b7085" })
           }
@@ -910,7 +911,8 @@ function AgentChat({
         }
       ),
       !open && unread > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: S.unreadBadge, "aria-label": `${unread} sugerencias nuevas`, children: unread })
-    ] })
+    ] }),
+    panelPropio && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SettingsPanel, { endpoint, accent: effAccent, onClose: () => setPanelPropio(false) })
   ] });
 }
 function MessageContent({
@@ -944,6 +946,226 @@ function MessageContent({
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { src: image.image, alt: "adjunto", style: S.msgImg }),
     text == null ? void 0 : text.text
   ] });
+}
+function SettingsPanel({
+  endpoint,
+  accent,
+  onClose
+}) {
+  const [cargando, setCargando] = (0, import_react.useState)(true);
+  const [noDisponible, setNoDisponible] = (0, import_react.useState)(false);
+  const [gatewayUrl, setGatewayUrl] = (0, import_react.useState)("");
+  const [appToken, setAppToken] = (0, import_react.useState)("");
+  const [enabled, setEnabled] = (0, import_react.useState)(true);
+  const [hasAppToken, setHasAppToken] = (0, import_react.useState)(false);
+  const [probando, setProbando] = (0, import_react.useState)(false);
+  const [resultadoPrueba, setResultadoPrueba] = (0, import_react.useState)(null);
+  const [guardando, setGuardando] = (0, import_react.useState)(false);
+  const [msgGuardar, setMsgGuardar] = (0, import_react.useState)("");
+  const [specUrl, setSpecUrl] = (0, import_react.useState)("");
+  const [sincronizando, setSincronizando] = (0, import_react.useState)(false);
+  const [resultadoSync, setResultadoSync] = (0, import_react.useState)(null);
+  const cargar = (0, import_react.useCallback)(async () => {
+    var _a, _b, _c;
+    setCargando(true);
+    try {
+      const r = await fetch(`${endpoint}/config`);
+      if (r.status === 404) {
+        setNoDisponible(true);
+        return;
+      }
+      if (!r.ok) return;
+      const d = await r.json();
+      const c = (_a = d == null ? void 0 : d.conexion) != null ? _a : null;
+      if (c) {
+        setGatewayUrl((_b = c.gatewayUrl) != null ? _b : "");
+        setEnabled((_c = c.enabled) != null ? _c : true);
+        setHasAppToken(Boolean(c.hasAppToken));
+      }
+    } catch {
+      setNoDisponible(true);
+    } finally {
+      setCargando(false);
+    }
+  }, [endpoint]);
+  (0, import_react.useEffect)(() => {
+    cargar();
+  }, [cargar]);
+  async function probar() {
+    setProbando(true);
+    setResultadoPrueba(null);
+    try {
+      const r = await fetch(`${endpoint}/test-connection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || void 0 })
+      });
+      setResultadoPrueba(await r.json());
+    } catch {
+      setResultadoPrueba({ ok: false, detalle: "No se pudo conectar" });
+    } finally {
+      setProbando(false);
+    }
+  }
+  async function guardarConexion(e) {
+    e.preventDefault();
+    setGuardando(true);
+    setMsgGuardar("");
+    try {
+      const r = await fetch(`${endpoint}/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || void 0, enabled })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setMsgGuardar((d == null ? void 0 : d.detalle) || "No se pudo guardar");
+        return;
+      }
+      setAppToken("");
+      setMsgGuardar("Guardado.");
+      cargar();
+    } catch {
+      setMsgGuardar("No se pudo conectar");
+    } finally {
+      setGuardando(false);
+    }
+  }
+  async function sincronizar(e) {
+    e.preventDefault();
+    setSincronizando(true);
+    setResultadoSync(null);
+    try {
+      const r = await fetch(`${endpoint}/sync-tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specUrl })
+      });
+      setResultadoSync(await r.json());
+    } catch {
+      setResultadoSync({ ok: false, detalle: "No se pudo conectar" });
+    } finally {
+      setSincronizando(false);
+    }
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: S.settingsBackdrop, onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsCard, onClick: (e) => e.stopPropagation(), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsHead, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { style: S.settingsTitle, children: "Configuraci\xF3n del agente" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Cerrar",
+          onClick: onClose,
+          style: { background: "transparent", border: "none", padding: 4, cursor: "pointer" },
+          children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CloseGlyph, { color: "#8b8fa3" })
+        }
+      )
+    ] }),
+    cargando ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TypingDots, {}) : noDisponible ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { style: S.settingsHint, children: [
+      "Este widget no encontr\xF3 ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("code", { children: [
+        endpoint,
+        "/config"
+      ] }),
+      ". Si tu servidor no usa",
+      " ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "bivoo-agent-widget/server" }),
+      ", este panel no tiene con qu\xE9 hablar \u2014 usa",
+      " ",
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "onOpenSettings" }),
+      " para mostrar tu propia interfaz en su lugar."
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", { onSubmit: guardarConexion, style: S.settingsSection, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: S.settingsSectionTitle, children: "Conexi\xF3n" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsField, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { style: S.settingsLabel, children: "URL del gateway" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "input",
+            {
+              style: S.settingsInput,
+              value: gatewayUrl,
+              onChange: (e) => setGatewayUrl(e.target.value),
+              placeholder: "https://agente.tu-dominio.com"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsField, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { style: S.settingsLabel, children: "App Token" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "input",
+            {
+              style: S.settingsInput,
+              type: "password",
+              value: appToken,
+              onChange: (e) => setAppToken(e.target.value),
+              placeholder: hasAppToken ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 (sin cambios)" : "app_...",
+              autoComplete: "off"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: S.settingsHint, children: hasAppToken ? "Ya hay uno guardado. D\xE9jalo en blanco para conservarlo." : "Lo consigues en tu panel del gateway \u2192 el agente \u2192 Desarrollo \u2192 appToken." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...S.settingsRow, marginBottom: 12, cursor: "pointer" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: enabled, onChange: (e) => setEnabled(e.target.checked) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 12.5, color: "#4b4f63" }, children: "Agente activo" })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsRow, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              type: "button",
+              onClick: probar,
+              disabled: probando || !gatewayUrl,
+              style: { ...S.settingsBtnGhost, opacity: probando || !gatewayUrl ? 0.6 : 1 },
+              children: probando ? "Probando\u2026" : "Probar conexi\xF3n"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              type: "submit",
+              disabled: guardando || !gatewayUrl,
+              style: { ...S.settingsBtn, background: accent, opacity: guardando ? 0.7 : 1 },
+              children: guardando ? "Guardando\u2026" : "Guardar"
+            }
+          )
+        ] }),
+        resultadoPrueba && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: resultadoPrueba.ok ? S.settingsResultOk : S.settingsResultErr, children: resultadoPrueba.detalle }),
+        msgGuardar && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { style: S.settingsHint, children: msgGuardar })
+      ] }),
+      hasAppToken && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", { onSubmit: sincronizar, style: S.settingsSection, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", { style: S.settingsSectionTitle, children: "Herramientas" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: S.settingsField, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", { style: S.settingsLabel, children: "URL de tu Swagger/OpenAPI (JSON)" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "input",
+            {
+              style: S.settingsInput,
+              value: specUrl,
+              onChange: (e) => setSpecUrl(e.target.value),
+              placeholder: "https://tu-dominio.com/api/openapi"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "submit",
+            disabled: sincronizando || !specUrl,
+            style: { ...S.settingsBtn, background: accent, opacity: sincronizando ? 0.7 : 1 },
+            children: sincronizando ? "Sincronizando\u2026" : "Sincronizar"
+          }
+        ),
+        resultadoSync && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: resultadoSync.ok ? S.settingsResultOk : S.settingsResultErr, children: [
+          resultadoSync.detalle,
+          resultadoSync.ok && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
+            "Reci\xE9n importadas quedan desactivadas salvo que sean de solo lectura \u2014 act\xEDvalas desde el panel del gateway."
+          ] })
+        ] })
+      ] })
+    ] })
+  ] }) });
 }
 function CloseGlyph({ color = "#4b4f63" }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -1690,6 +1912,123 @@ var S = {
     fontWeight: 600,
     cursor: "pointer",
     lineHeight: 1.3
+  },
+  // --- panel de configuración incorporado (gear sin onOpenSettings) ---
+  settingsBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(20, 20, 40, 0.4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2147483e3,
+    // por encima de casi cualquier cosa de la página anfitriona
+    padding: 16
+  },
+  settingsCard: {
+    width: 400,
+    maxWidth: "100%",
+    maxHeight: "88vh",
+    overflowY: "auto",
+    background: "#fff",
+    borderRadius: 18,
+    boxShadow: "0 24px 60px rgba(20, 20, 50, 0.28)",
+    padding: 22
+  },
+  settingsHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 16
+  },
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: 750,
+    color: "#1b1c28",
+    margin: 0
+  },
+  settingsSection: {
+    marginBottom: 18
+  },
+  settingsSectionTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "#8b8fa3",
+    margin: "0 0 10px"
+  },
+  settingsLabel: {
+    display: "block",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "#4b4f63",
+    marginBottom: 5
+  },
+  settingsField: {
+    marginBottom: 12
+  },
+  settingsInput: {
+    width: "100%",
+    padding: "9px 11px",
+    borderRadius: 10,
+    border: "1px solid #e2e3ee",
+    fontSize: 13.5,
+    fontFamily: "inherit",
+    color: "#1b1c28",
+    background: "#fbfbfd",
+    boxSizing: "border-box"
+  },
+  settingsHint: {
+    fontSize: 11.5,
+    color: "#8b8fa3",
+    margin: "5px 0 0",
+    lineHeight: 1.5
+  },
+  settingsRow: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center"
+  },
+  settingsBtn: {
+    padding: "9px 14px",
+    borderRadius: 10,
+    border: "none",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 650,
+    cursor: "pointer"
+  },
+  settingsBtnGhost: {
+    padding: "9px 14px",
+    borderRadius: 10,
+    border: "1px solid #e2e3ee",
+    background: "#fff",
+    color: "#4b4f63",
+    fontSize: 13,
+    fontWeight: 650,
+    cursor: "pointer"
+  },
+  settingsResultOk: {
+    marginTop: 10,
+    padding: "8px 11px",
+    borderRadius: 10,
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    color: "#047857",
+    fontSize: 12.5,
+    lineHeight: 1.5
+  },
+  settingsResultErr: {
+    marginTop: 10,
+    padding: "8px 11px",
+    borderRadius: 10,
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#b91c1c",
+    fontSize: 12.5,
+    lineHeight: 1.5
   },
   suggestionBubble: {
     borderStyle: "dashed",

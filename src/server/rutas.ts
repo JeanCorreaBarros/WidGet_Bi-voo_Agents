@@ -109,8 +109,17 @@ export function createAgentRoutes(opciones: CrearRutasOpciones = {}) {
     const body = await req.json().catch(() => ({}) as Record<string, unknown>);
 
     if (ruta[0] === "test-connection") {
-      const gatewayUrl = String(body.gatewayUrl ?? "").trim();
-      const appToken = String(body.appToken ?? "").trim();
+      // Sin token en el body (o con la máscara que ya enseñó /config, sin
+      // que el usuario la haya tocado), se prueba con el que ya está
+      // guardado — así "Probar conexión" funciona sobre lo que ya
+      // configuraste, sin obligar a volver a pegar el token cada vez.
+      const escrito = String(body.appToken ?? "").trim();
+      const usaGuardado = !escrito || escrito.includes("••••");
+      const guardada = usaGuardado ? await resolverConexion(almacen, nombreAgente) : null;
+
+      const gatewayUrl = String(body.gatewayUrl ?? guardada?.gatewayUrl ?? "").trim();
+      const appToken = usaGuardado ? (guardada?.appToken ?? "") : escrito;
+
       if (!gatewayUrl || !appToken) {
         return Response.json({ ok: false, detalle: "Falta la URL o el App Token" }, { status: 400 });
       }

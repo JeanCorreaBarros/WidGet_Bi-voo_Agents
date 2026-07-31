@@ -169,6 +169,10 @@ const params = (ruta: string[]) => ({ params: Promise.resolve({ ruta }) });
     const dMal = await rProbarMal.json();
     ok(dMal.ok === false, "token incorrecto → no ok, y no revienta");
 
+    // Sin escribir el token de nuevo: prueba con el que ya está guardado.
+    const rProbarSinToken = await post(["test-connection"], { gatewayUrl: gateway.base });
+    ok((await rProbarSinToken.json()).ok === true, "sin token en el formulario, prueba con el ya guardado");
+
     /* ---------- verificar login del gateway ---------- */
     console.log("\n--- verificar login ---");
 

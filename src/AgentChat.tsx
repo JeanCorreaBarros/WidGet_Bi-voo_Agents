@@ -446,6 +446,8 @@ export function AgentChat({
   const [image, setImage] = useState<string | null>(null); // base64 data URL
   const [listening, setListening] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Panel de configuración PROPIO del widget — solo cuando no hay `onOpenSettings`. */
+  const [panelPropio, setPanelPropio] = useState(false);
   const [unread, setUnread] = useState(0);
   /** Sugerencia asomada sobre el botón, sin abrir el chat. */
   const [peek, setPeek] = useState<string | null>(null);
@@ -912,17 +914,18 @@ export function AgentChat({
                 <span style={S.dot} /> {subtitle}
               </div>
             </div>
-            {/* Engranaje: el widget no sabe qué hay detrás ni cómo se
-                autentica — solo avisa cuando lo pulsan. La app anfitriona
-                decide si mostrarlo (showSettings) y qué hacer al pulsarlo
-                (onOpenSettings), típicamente abrir su propio modal de
-                configuración de Bi-voo Agents. Sin ambas props, no aparece:
-                el widget se ve exactamente igual que antes de esto. */}
-            {showSettings && onOpenSettings && (
+            {/* Engranaje: la app anfitriona decide si se muestra
+                (showSettings) — el widget nunca lo decide solo. Al pulsarlo:
+                si la app dio `onOpenSettings`, manda ahí (su propia
+                interfaz, a su manera). Si no, el widget abre SU PROPIO
+                panel — habla con `${endpoint}/config` y compañía, que monta
+                `bivoo-agent-widget/server` con una línea. Sin `showSettings`
+                no aparece nada: el widget se ve igual que antes de esto. */}
+            {showSettings && (
               <button
                 aria-label="Configurar Bi-voo Agents"
                 title="Configurar Bi-voo Agents"
-                onClick={onOpenSettings}
+                onClick={() => (onOpenSettings ? onOpenSettings() : setPanelPropio(true))}
                 style={S.close}
               >
                 <GearGlyph color="#6b7085" />
@@ -1247,6 +1250,10 @@ export function AgentChat({
           </span>
         )}
       </div>
+
+      {panelPropio && (
+        <SettingsPanel endpoint={endpoint} accent={effAccent} onClose={() => setPanelPropio(false)} />
+      )}
     </div>
   );
 }
@@ -1308,6 +1315,275 @@ function MessageContent({
       )}
       {text?.text}
     </>
+  );
+}
+
+/* ==========================================================================
+   Panel de configuración incorporado
+
+   Se usa cuando el engranaje está encendido (`showSettings`) pero la app
+   anfitriona NO dio su propio `onOpenSettings` — es la vía de "cero código":
+   instalas el widget, apuntas `endpoint` a una ruta montada con
+   `createAgentRoutes()` (paquete `bivoo-agent-widget/server`), y ya hay
+   panel de Conexión y de Herramientas, sin construir ni un formulario.
+
+   Si la app SÍ da `onOpenSettings`, este componente ni se monta — la app
+   tiene entonces control total (su propio look, sus propios pasos extra de
+   verificación, etc.). Las dos vías conviven a propósito: una es "ya
+   funciona", la otra es "a mi manera".
+
+   Habla con `${endpoint}/config`, `/test-connection` y `/sync-tools` — los
+   mismos sub-caminos que ya monta `createAgentRoutes()` bajo el mismo
+   `endpoint` que usa el chat. Si el host no usa ese paquete de servidor,
+   estas llamadas simplemente devuelven 404 y el panel lo dice con claridad
+   en vez de fallar en silencio.
+   ========================================================================== */
+
+type ConexionMostrada = {
+  enabled: boolean;
+  gatewayUrl: string;
+  appToken: string;
+  hasAppToken: boolean;
+  hasToolSecret: boolean;
+};
+
+function SettingsPanel({
+  endpoint,
+  accent,
+  onClose,
+}: {
+  endpoint: string;
+  accent: string;
+  onClose: () => void;
+}) {
+  const [cargando, setCargando] = useState(true);
+  const [noDisponible, setNoDisponible] = useState(false);
+  const [gatewayUrl, setGatewayUrl] = useState("");
+  const [appToken, setAppToken] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [hasAppToken, setHasAppToken] = useState(false);
+
+  const [probando, setProbando] = useState(false);
+  const [resultadoPrueba, setResultadoPrueba] = useState<{ ok: boolean; detalle: string } | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [msgGuardar, setMsgGuardar] = useState("");
+
+  const [specUrl, setSpecUrl] = useState("");
+  const [sincronizando, setSincronizando] = useState(false);
+  const [resultadoSync, setResultadoSync] = useState<{ ok: boolean; detalle: string } | null>(null);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const r = await fetch(`${endpoint}/config`);
+      if (r.status === 404) {
+        setNoDisponible(true);
+        return;
+      }
+      if (!r.ok) return; // 401/501: sin permiso o sin requireAdmin — se ve en resultadoPrueba al intentar algo
+      const d = await r.json();
+      const c: ConexionMostrada | null = d?.conexion ?? null;
+      if (c) {
+        setGatewayUrl(c.gatewayUrl ?? "");
+        setEnabled(c.enabled ?? true);
+        setHasAppToken(Boolean(c.hasAppToken));
+      }
+    } catch {
+      setNoDisponible(true);
+    } finally {
+      setCargando(false);
+    }
+  }, [endpoint]);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  async function probar() {
+    setProbando(true);
+    setResultadoPrueba(null);
+    try {
+      const r = await fetch(`${endpoint}/test-connection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || undefined }),
+      });
+      setResultadoPrueba(await r.json());
+    } catch {
+      setResultadoPrueba({ ok: false, detalle: "No se pudo conectar" });
+    } finally {
+      setProbando(false);
+    }
+  }
+
+  async function guardarConexion(e: React.FormEvent) {
+    e.preventDefault();
+    setGuardando(true);
+    setMsgGuardar("");
+    try {
+      const r = await fetch(`${endpoint}/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gatewayUrl, appToken: appToken || undefined, enabled }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setMsgGuardar(d?.detalle || "No se pudo guardar");
+        return;
+      }
+      setAppToken(""); // el campo vuelve a quedar vacío: lo guardado ya no hace falta reescribirlo
+      setMsgGuardar("Guardado.");
+      cargar();
+    } catch {
+      setMsgGuardar("No se pudo conectar");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function sincronizar(e: React.FormEvent) {
+    e.preventDefault();
+    setSincronizando(true);
+    setResultadoSync(null);
+    try {
+      const r = await fetch(`${endpoint}/sync-tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specUrl }),
+      });
+      setResultadoSync(await r.json());
+    } catch {
+      setResultadoSync({ ok: false, detalle: "No se pudo conectar" });
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
+  return (
+    <div style={S.settingsBackdrop} onClick={onClose}>
+      <div style={S.settingsCard} onClick={(e) => e.stopPropagation()}>
+        <div style={S.settingsHead}>
+          <h3 style={S.settingsTitle}>Configuración del agente</h3>
+          <button
+            type="button"
+            aria-label="Cerrar"
+            onClick={onClose}
+            style={{ background: "transparent", border: "none", padding: 4, cursor: "pointer" }}
+          >
+            <CloseGlyph color="#8b8fa3" />
+          </button>
+        </div>
+
+        {cargando ? (
+          <TypingDots />
+        ) : noDisponible ? (
+          <p style={S.settingsHint}>
+            Este widget no encontró <code>{endpoint}/config</code>. Si tu servidor no usa{" "}
+            <code>bivoo-agent-widget/server</code>, este panel no tiene con qué hablar — usa{" "}
+            <code>onOpenSettings</code> para mostrar tu propia interfaz en su lugar.
+          </p>
+        ) : (
+          <>
+            <form onSubmit={guardarConexion} style={S.settingsSection}>
+              <h4 style={S.settingsSectionTitle}>Conexión</h4>
+
+              <div style={S.settingsField}>
+                <label style={S.settingsLabel}>URL del gateway</label>
+                <input
+                  style={S.settingsInput}
+                  value={gatewayUrl}
+                  onChange={(e) => setGatewayUrl(e.target.value)}
+                  placeholder="https://agente.tu-dominio.com"
+                />
+              </div>
+
+              <div style={S.settingsField}>
+                <label style={S.settingsLabel}>App Token</label>
+                <input
+                  style={S.settingsInput}
+                  type="password"
+                  value={appToken}
+                  onChange={(e) => setAppToken(e.target.value)}
+                  placeholder={hasAppToken ? "•••••••••••••••• (sin cambios)" : "app_..."}
+                  autoComplete="off"
+                />
+                <p style={S.settingsHint}>
+                  {hasAppToken
+                    ? "Ya hay uno guardado. Déjalo en blanco para conservarlo."
+                    : "Lo consigues en tu panel del gateway → el agente → Desarrollo → appToken."}
+                </p>
+              </div>
+
+              <label style={{ ...S.settingsRow, marginBottom: 12, cursor: "pointer" }}>
+                <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+                <span style={{ fontSize: 12.5, color: "#4b4f63" }}>Agente activo</span>
+              </label>
+
+              <div style={S.settingsRow}>
+                <button
+                  type="button"
+                  onClick={probar}
+                  disabled={probando || !gatewayUrl}
+                  style={{ ...S.settingsBtnGhost, opacity: probando || !gatewayUrl ? 0.6 : 1 }}
+                >
+                  {probando ? "Probando…" : "Probar conexión"}
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardando || !gatewayUrl}
+                  style={{ ...S.settingsBtn, background: accent, opacity: guardando ? 0.7 : 1 }}
+                >
+                  {guardando ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+
+              {resultadoPrueba && (
+                <div style={resultadoPrueba.ok ? S.settingsResultOk : S.settingsResultErr}>
+                  {resultadoPrueba.detalle}
+                </div>
+              )}
+              {msgGuardar && (
+                <p style={S.settingsHint}>{msgGuardar}</p>
+              )}
+            </form>
+
+            {hasAppToken && (
+              <form onSubmit={sincronizar} style={S.settingsSection}>
+                <h4 style={S.settingsSectionTitle}>Herramientas</h4>
+                <div style={S.settingsField}>
+                  <label style={S.settingsLabel}>URL de tu Swagger/OpenAPI (JSON)</label>
+                  <input
+                    style={S.settingsInput}
+                    value={specUrl}
+                    onChange={(e) => setSpecUrl(e.target.value)}
+                    placeholder="https://tu-dominio.com/api/openapi"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sincronizando || !specUrl}
+                  style={{ ...S.settingsBtn, background: accent, opacity: sincronizando ? 0.7 : 1 }}
+                >
+                  {sincronizando ? "Sincronizando…" : "Sincronizar"}
+                </button>
+                {resultadoSync && (
+                  <div style={resultadoSync.ok ? S.settingsResultOk : S.settingsResultErr}>
+                    {resultadoSync.detalle}
+                    {resultadoSync.ok && (
+                      <>
+                        <br />
+                        Recién importadas quedan desactivadas salvo que sean de solo lectura — actívalas desde el
+                        panel del gateway.
+                      </>
+                    )}
+                  </div>
+                )}
+              </form>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2218,6 +2494,122 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     cursor: "pointer",
     lineHeight: 1.3,
+  },
+  // --- panel de configuración incorporado (gear sin onOpenSettings) ---
+  settingsBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(20, 20, 40, 0.4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2147483000, // por encima de casi cualquier cosa de la página anfitriona
+    padding: 16,
+  },
+  settingsCard: {
+    width: 400,
+    maxWidth: "100%",
+    maxHeight: "88vh",
+    overflowY: "auto",
+    background: "#fff",
+    borderRadius: 18,
+    boxShadow: "0 24px 60px rgba(20, 20, 50, 0.28)",
+    padding: 22,
+  },
+  settingsHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 16,
+  },
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: 750,
+    color: "#1b1c28",
+    margin: 0,
+  },
+  settingsSection: {
+    marginBottom: 18,
+  },
+  settingsSectionTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "#8b8fa3",
+    margin: "0 0 10px",
+  },
+  settingsLabel: {
+    display: "block",
+    fontSize: 12.5,
+    fontWeight: 600,
+    color: "#4b4f63",
+    marginBottom: 5,
+  },
+  settingsField: {
+    marginBottom: 12,
+  },
+  settingsInput: {
+    width: "100%",
+    padding: "9px 11px",
+    borderRadius: 10,
+    border: "1px solid #e2e3ee",
+    fontSize: 13.5,
+    fontFamily: "inherit",
+    color: "#1b1c28",
+    background: "#fbfbfd",
+    boxSizing: "border-box",
+  },
+  settingsHint: {
+    fontSize: 11.5,
+    color: "#8b8fa3",
+    margin: "5px 0 0",
+    lineHeight: 1.5,
+  },
+  settingsRow: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+  },
+  settingsBtn: {
+    padding: "9px 14px",
+    borderRadius: 10,
+    border: "none",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 650,
+    cursor: "pointer",
+  },
+  settingsBtnGhost: {
+    padding: "9px 14px",
+    borderRadius: 10,
+    border: "1px solid #e2e3ee",
+    background: "#fff",
+    color: "#4b4f63",
+    fontSize: 13,
+    fontWeight: 650,
+    cursor: "pointer",
+  },
+  settingsResultOk: {
+    marginTop: 10,
+    padding: "8px 11px",
+    borderRadius: 10,
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    color: "#047857",
+    fontSize: 12.5,
+    lineHeight: 1.5,
+  },
+  settingsResultErr: {
+    marginTop: 10,
+    padding: "8px 11px",
+    borderRadius: 10,
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#b91c1c",
+    fontSize: 12.5,
+    lineHeight: 1.5,
   },
   suggestionBubble: {
     borderStyle: "dashed",

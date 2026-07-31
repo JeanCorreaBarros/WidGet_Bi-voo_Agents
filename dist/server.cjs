@@ -237,7 +237,7 @@ function createAgentRoutes(opciones = {}) {
     return new Response("No encontrado", { status: 404 });
   }
   async function POST2(req, ctx) {
-    var _a2, _b2, _c, _d, _e;
+    var _a2, _b2, _c, _d, _e, _f, _g;
     const { ruta = [] } = await ctx.params;
     if (ruta.length === 0) {
       const conexion = await resolverConexion(almacen, nombreAgente);
@@ -248,8 +248,11 @@ function createAgentRoutes(opciones = {}) {
     if (bloqueo) return bloqueo;
     const body = await req.json().catch(() => ({}));
     if (ruta[0] === "test-connection") {
-      const gatewayUrl = String((_a2 = body.gatewayUrl) != null ? _a2 : "").trim();
-      const appToken = String((_b2 = body.appToken) != null ? _b2 : "").trim();
+      const escrito = String((_a2 = body.appToken) != null ? _a2 : "").trim();
+      const usaGuardado = !escrito || escrito.includes("\u2022\u2022\u2022\u2022");
+      const guardada = usaGuardado ? await resolverConexion(almacen, nombreAgente) : null;
+      const gatewayUrl = String((_c = (_b2 = body.gatewayUrl) != null ? _b2 : guardada == null ? void 0 : guardada.gatewayUrl) != null ? _c : "").trim();
+      const appToken = usaGuardado ? (_d = guardada == null ? void 0 : guardada.appToken) != null ? _d : "" : escrito;
       if (!gatewayUrl || !appToken) {
         return Response.json({ ok: false, detalle: "Falta la URL o el App Token" }, { status: 400 });
       }
@@ -260,7 +263,7 @@ function createAgentRoutes(opciones = {}) {
       if (!conexion) {
         return Response.json({ ok: false, detalle: "Configura primero la URL del gateway" }, { status: 400 });
       }
-      const r = await verificarLoginGateway(conexion, String((_c = body.username) != null ? _c : ""), String((_d = body.password) != null ? _d : ""));
+      const r = await verificarLoginGateway(conexion, String((_e = body.username) != null ? _e : ""), String((_f = body.password) != null ? _f : ""));
       return Response.json(r, { status: r.ok ? 200 : 401 });
     }
     if (ruta[0] === "sync-tools") {
@@ -268,7 +271,7 @@ function createAgentRoutes(opciones = {}) {
       if (!conexion) {
         return Response.json({ ok: false, detalle: "Configura primero la URL del gateway" }, { status: 400 });
       }
-      const specUrl = String((_e = body.specUrl) != null ? _e : "").trim();
+      const specUrl = String((_g = body.specUrl) != null ? _g : "").trim();
       if (!specUrl) return Response.json({ ok: false, detalle: "Falta specUrl" }, { status: 400 });
       const r = await sincronizarOpenapi(conexion, specUrl);
       return Response.json(r, { status: r.ok ? 200 : 400 });
