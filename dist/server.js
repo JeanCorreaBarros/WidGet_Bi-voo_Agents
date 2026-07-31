@@ -79,17 +79,17 @@ async function resolverConexion(almacen, nombre) {
 function base(conexion) {
   return conexion.gatewayUrl.replace(/\/+$/, "");
 }
-async function reenviarChatGet(req, conexion) {
+async function reenviarChatGet(req, conexion, cabecerasExtra = {}) {
   const url = new URL(req.url);
   const upstream = await fetch(`${base(conexion)}/api/chat${url.search}`, {
-    headers: { "x-app-token": conexion.appToken }
+    headers: { "x-app-token": conexion.appToken, ...cabecerasExtra }
   });
   return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
 }
-async function reenviarChatPost(req, conexion) {
+async function reenviarChatPost(req, conexion, cabecerasExtra = {}) {
   const upstream = await fetch(`${base(conexion)}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-app-token": conexion.appToken },
+    headers: { "Content-Type": "application/json", "x-app-token": conexion.appToken, ...cabecerasExtra },
     body: await req.text()
   });
   return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
@@ -270,11 +270,284 @@ function createAgentRoutes(opciones = {}) {
   return { GET: GET2, POST: POST2, PUT: PUT2 };
 }
 var { GET, POST, PUT } = createAgentRoutes();
+
+// src/server/agentes.ts
+import { promises as fs2 } from "fs";
+import path2 from "path";
+
+// src/shared/agentes-ruta.ts
+function dentroDe(prefijo, ruta) {
+  const base2 = prefijo.replace(/\/+$/, "");
+  if (base2 === "") return true;
+  return ruta === base2 || ruta.startsWith(`${base2}/`);
+}
+function exclusiones(a) {
+  var _a;
+  return ((_a = a.excludePaths) != null ? _a : "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+function agenteParaRuta(agentes, ruta) {
+  const encajan = agentes.filter(
+    (a) => dentroDe(a.mountPath, ruta) && !exclusiones(a).some((ex) => dentroDe(ex, ruta))
+  );
+  if (encajan.length === 0) return null;
+  return encajan.sort((x, y) => y.mountPath.length - x.mountPath.length)[0];
+}
+function endpointDe(slug, audience, base2 = {}) {
+  var _a, _b;
+  const publico = (_a = base2.publico) != null ? _a : "/api/agente";
+  const staff = (_b = base2.staff) != null ? _b : "/api/admin/agentes";
+  return audience === "publico" ? `${publico}/${slug}` : `${staff}/${slug}/chat`;
+}
+
+// src/server/agentes.ts
+function saneaSlug(v) {
+  return v.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+function saneaRuta(v) {
+  const limpia = `/${String(v || "/").trim()}`.replace(/\/+/g, "/").replace(/\/+$/, "");
+  return limpia === "" ? "/" : limpia;
+}
+function saneaExclusiones(v) {
+  const rutas = String(v || "").split(",").map((s) => s.trim()).filter(Boolean).map(saneaRuta);
+  return [...new Set(rutas)].join(",");
+}
+function almacenAgentesDeArchivo(ruta = ".bivoo-agentes.json") {
+  const rutaAbsoluta = path2.isAbsolute(ruta) ? ruta : path2.join(process.cwd(), ruta);
+  async function leerTodos() {
+    try {
+      const texto = await fs2.readFile(rutaAbsoluta, "utf8");
+      return JSON.parse(texto);
+    } catch {
+      return [];
+    }
+  }
+  async function guardarTodos(agentes) {
+    await fs2.writeFile(rutaAbsoluta, JSON.stringify(agentes, null, 2), "utf8");
+  }
+  return {
+    listar: leerTodos,
+    async crear(datos) {
+      var _a, _b;
+      const todos = await leerTodos();
+      if (todos.some((a) => a.slug === datos.slug)) {
+        throw new Error(`Ya existe un agente con el identificador "${datos.slug}"`);
+      }
+      const nuevo = {
+        slug: datos.slug,
+        label: datos.label,
+        audience: datos.audience,
+        mountPath: datos.mountPath,
+        excludePaths: (_a = datos.excludePaths) != null ? _a : "",
+        // Nace apagado salvo que se diga lo contrario: encenderlo antes de
+        // tener conexión solo serviría para mostrar una burbuja rota.
+        enabled: (_b = datos.enabled) != null ? _b : false
+      };
+      await guardarTodos([...todos, nuevo]);
+      return nuevo;
+    },
+    async actualizar(slug, cambios) {
+      const todos = await leerTodos();
+      const i = todos.findIndex((a) => a.slug === slug);
+      if (i === -1) return null;
+      const actualizado = { ...todos[i], ...cambios };
+      todos[i] = actualizado;
+      await guardarTodos(todos);
+      return actualizado;
+    },
+    async borrar(slug) {
+      const todos = await leerTodos();
+      await guardarTodos(todos.filter((a) => a.slug !== slug));
+    }
+  };
+}
+
+// src/server/multiagente.ts
+function agenteVisible(a, base2) {
+  return {
+    slug: a.slug,
+    label: a.label,
+    audience: a.audience,
+    mountPath: a.mountPath,
+    excludePaths: a.excludePaths,
+    // Redundante en el listado público (ahí solo se incluyen los
+    // encendidos), pero imprescindible en el admin: sin esto no habría
+    // forma de saber, desde la respuesta, cuáles están apagados.
+    enabled: a.enabled,
+    endpoint: endpointDe(a.slug, a.audience, base2)
+  };
+}
+function createAgentesListado(opciones = {}) {
+  var _a;
+  const almacenAgentes = (_a = opciones.almacenAgentes) != null ? _a : almacenAgentesDeArchivo();
+  async function GET2(req) {
+    const todos = await almacenAgentes.listar();
+    const puedeConfigurar = opciones.requireAdmin ? await opciones.requireAdmin(req) : false;
+    const agentes = todos.filter((a) => a.enabled).filter((a) => a.audience === "publico" || puedeConfigurar).map((a) => agenteVisible(a, opciones.base));
+    return Response.json({ agentes, puedeConfigurar });
+  }
+  return { GET: GET2 };
+}
+function createAgentePublicoRoute(opciones = {}) {
+  var _a, _b;
+  const almacenAgentes = (_a = opciones.almacenAgentes) != null ? _a : almacenAgentesDeArchivo();
+  const almacen = (_b = opciones.almacen) != null ? _b : almacenDeArchivo();
+  async function acceso(ctx) {
+    const { slug } = await ctx.params;
+    const a = await almacenAgentes.listar();
+    const encontrado = a.find((x) => x.slug === slug);
+    if (!encontrado || !encontrado.enabled || encontrado.audience !== "publico") return null;
+    return encontrado;
+  }
+  async function GET2(req, ctx) {
+    const a = await acceso(ctx);
+    if (!a) return new Response("Agente desactivado", { status: 403 });
+    const conexion = await resolverConexion(almacen, a.slug);
+    if (!conexion) return new Response("Agente sin conexi\xF3n configurada", { status: 500 });
+    const extra = opciones.identidad ? await opciones.identidad(req, "publico") : {};
+    return reenviarChatGet(req, conexion, extra);
+  }
+  async function POST2(req, ctx) {
+    const a = await acceso(ctx);
+    if (!a) return new Response("Agente desactivado", { status: 403 });
+    const conexion = await resolverConexion(almacen, a.slug);
+    if (!conexion) return new Response("Agente sin conexi\xF3n configurada", { status: 500 });
+    const extra = opciones.identidad ? await opciones.identidad(req, "publico") : {};
+    return reenviarChatPost(req, conexion, extra);
+  }
+  return { GET: GET2, POST: POST2 };
+}
+function createAgentesAdminRoutes(opciones = {}) {
+  var _a, _b;
+  const almacenAgentes = (_a = opciones.almacenAgentes) != null ? _a : almacenAgentesDeArchivo();
+  const almacen = (_b = opciones.almacen) != null ? _b : almacenDeArchivo();
+  async function exigirAdmin(req) {
+    if (!opciones.requireAdmin) {
+      return new Response(
+        "La gesti\xF3n de agentes est\xE1 bloqueada: falta pasar `requireAdmin` a createAgentesAdminRoutes().",
+        { status: 501 }
+      );
+    }
+    const ok = await opciones.requireAdmin(req);
+    return ok ? null : new Response("No autorizado", { status: 401 });
+  }
+  function rutasConexionDe(slug) {
+    return createAgentRoutes({ agente: slug, almacen, requireAdmin: opciones.requireAdmin });
+  }
+  async function GET2(req, ctx) {
+    const bloqueo = await exigirAdmin(req);
+    if (bloqueo) return bloqueo;
+    const { ruta = [] } = await ctx.params;
+    if (ruta.length === 0) {
+      const todos = await almacenAgentes.listar();
+      return Response.json({ agentes: todos.map((a2) => agenteVisible(a2, opciones.base)) });
+    }
+    const [slug, sub, ...resto] = ruta;
+    const a = (await almacenAgentes.listar()).find((x) => x.slug === slug);
+    if (!a) return new Response("No encontrado", { status: 404 });
+    if (sub === "chat") {
+      if (a.audience !== "staff") return new Response("Este agente no es de staff", { status: 400 });
+      const conexion = await resolverConexion(almacen, slug);
+      if (!conexion) return new Response("Agente sin conexi\xF3n configurada", { status: 500 });
+      const extra = opciones.identidad ? await opciones.identidad(req, "staff") : {};
+      return reenviarChatGet(req, conexion, extra);
+    }
+    if (sub === "conexion") {
+      return rutasConexionDe(slug).GET(req, { params: Promise.resolve({ ruta: resto }) });
+    }
+    return new Response("No encontrado", { status: 404 });
+  }
+  async function POST2(req, ctx) {
+    var _a2, _b2, _c;
+    const bloqueo = await exigirAdmin(req);
+    if (bloqueo) return bloqueo;
+    const { ruta = [] } = await ctx.params;
+    if (ruta.length === 0) {
+      const body = await req.json().catch(() => ({}));
+      const label = String((_a2 = body.label) != null ? _a2 : "").trim();
+      const slug2 = saneaSlug(String((_b2 = body.slug) != null ? _b2 : label));
+      const audience = body.audience === "publico" ? "publico" : "staff";
+      const mountPath = saneaRuta(String((_c = body.mountPath) != null ? _c : "/"));
+      const excludePaths = typeof body.excludePaths === "string" ? saneaExclusiones(body.excludePaths) : "";
+      const enabled = typeof body.enabled === "boolean" ? body.enabled : false;
+      if (!label) return Response.json({ error: "Falta el nombre del agente" }, { status: 400 });
+      if (!slug2) {
+        return Response.json(
+          { error: "El nombre no deja un identificador v\xE1lido: usa letras o n\xFAmeros" },
+          { status: 400 }
+        );
+      }
+      try {
+        const creado = await almacenAgentes.crear({ slug: slug2, label, audience, mountPath, excludePaths, enabled });
+        return Response.json({ ok: true, agente: agenteVisible(creado, opciones.base) });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "No se pudo crear";
+        return Response.json({ error: msg }, { status: 409 });
+      }
+    }
+    const [slug, sub, ...resto] = ruta;
+    if (sub === "chat") {
+      const a = (await almacenAgentes.listar()).find((x) => x.slug === slug);
+      if (!a) return new Response("No encontrado", { status: 404 });
+      if (a.audience !== "staff") return new Response("Este agente no es de staff", { status: 400 });
+      const conexion = await resolverConexion(almacen, slug);
+      if (!conexion) return new Response("Agente sin conexi\xF3n configurada", { status: 500 });
+      const extra = opciones.identidad ? await opciones.identidad(req, "staff") : {};
+      return reenviarChatPost(req, conexion, extra);
+    }
+    if (sub === "conexion") {
+      return rutasConexionDe(slug).POST(req, { params: Promise.resolve({ ruta: resto }) });
+    }
+    return new Response("No encontrado", { status: 404 });
+  }
+  async function PUT2(req, ctx) {
+    const bloqueo = await exigirAdmin(req);
+    if (bloqueo) return bloqueo;
+    const { ruta = [] } = await ctx.params;
+    if (ruta.length === 0) return new Response("No encontrado", { status: 404 });
+    const [slug, sub, ...resto] = ruta;
+    if (sub === "conexion") {
+      return rutasConexionDe(slug).PUT(req, { params: Promise.resolve({ ruta: resto }) });
+    }
+    if (sub !== void 0) return new Response("No encontrado", { status: 404 });
+    const body = await req.json().catch(() => ({}));
+    const cambios = {};
+    if (typeof body.label === "string" && body.label.trim()) cambios.label = body.label.trim();
+    if (body.audience === "staff" || body.audience === "publico") cambios.audience = body.audience;
+    if (typeof body.mountPath === "string") cambios.mountPath = saneaRuta(body.mountPath);
+    if (typeof body.excludePaths === "string") cambios.excludePaths = saneaExclusiones(body.excludePaths);
+    if (typeof body.enabled === "boolean") cambios.enabled = body.enabled;
+    if (Object.keys(cambios).length === 0) {
+      return Response.json({ error: "Nada que cambiar" }, { status: 400 });
+    }
+    const actualizado = await almacenAgentes.actualizar(slug, cambios);
+    if (!actualizado) return new Response("No encontrado", { status: 404 });
+    return Response.json({ ok: true, agente: agenteVisible(actualizado, opciones.base) });
+  }
+  async function DELETE(req, ctx) {
+    const bloqueo = await exigirAdmin(req);
+    if (bloqueo) return bloqueo;
+    const { ruta = [] } = await ctx.params;
+    const [slug, sub] = ruta;
+    if (!slug || sub !== void 0) return new Response("No encontrado", { status: 404 });
+    await almacenAgentes.borrar(slug);
+    return Response.json({ ok: true });
+  }
+  return { GET: GET2, POST: POST2, PUT: PUT2, DELETE };
+}
 export {
   GET,
   POST,
   PUT,
+  agenteParaRuta,
+  almacenAgentesDeArchivo,
   almacenDeArchivo,
-  createAgentRoutes
+  createAgentRoutes,
+  createAgentePublicoRoute,
+  createAgentesAdminRoutes,
+  createAgentesListado,
+  endpointDe,
+  saneaExclusiones,
+  saneaRuta,
+  saneaSlug
 };
 //# sourceMappingURL=server.js.map

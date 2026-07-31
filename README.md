@@ -266,6 +266,147 @@ Para quitar el widget de la página (por ejemplo, al cerrar sesión):
 
 ---
 
+## 4. Varios agentes, definidos por configuración
+
+Todo lo de arriba asume un agente por instancia del widget: montas
+`<AgentChat>`, le das un `endpoint`, y ese `endpoint` habla siempre con el
+mismo agente. Para dos o tres agentes fijos (uno para tu panel, otro para
+tus clientes) eso es lo más simple — monta un `<AgentChat>` por layout, con
+su propio proxy (`createAgentRoutes({ agente: "..." })`), y ya está.
+
+Esta sección es para cuando eso se queda corto: más de dos o tres agentes,
+quieres poder crear uno nuevo o moverlo de ruta sin desplegar código, o
+necesitas que un agente cubra "toda la app **menos** una zona" (un
+checkout, una pasarela de pago) — algo que no se puede decir solo
+incluyendo layouts.
+
+La idea: una tabla de **accesos** (uno por agente, con su público, su ruta
+y sus exclusiones) y **un solo componente**, montado una vez en tu layout
+raíz, que en cada render pregunta "¿qué agentes hay y cuál toca aquí?" y
+monta el que corresponde.
+
+### El proxy — tres piezas, tres archivos de ruta
+
+Cada una vive donde le corresponde por seguridad, no por comodidad — mira
+el comentario de cada una en `bivoo-agent-widget/server`:
+
+```ts
+// app/api/agentes/route.ts — PÚBLICA
+import { createAgentesListado } from "bivoo-agent-widget/server";
+export const { GET } = createAgentesListado({ requireAdmin: miPropiaComprobacion });
+
+// app/api/agente/[slug]/route.ts — PÚBLICA: el chat de un agente "publico"
+import { createAgentePublicoRoute } from "bivoo-agent-widget/server";
+export const { GET, POST } = createAgentePublicoRoute();
+
+// app/api/admin/agentes/[...ruta]/route.ts — DENTRO de tu zona ya protegida
+import { createAgentesAdminRoutes } from "bivoo-agent-widget/server";
+export const { GET, POST, PUT, DELETE } = createAgentesAdminRoutes({
+  requireAdmin: miPropiaComprobacion,
+});
+```
+
+El tercero resuelve todo lo que exige ser administrador con un solo
+catch-all: listar todos los agentes, crear, editar, borrar, el chat de los
+agentes "staff", y la conexión (URL, App Token, secreto) de cualquiera de
+los dos — configurar SIEMPRE es cosa de quien administra, aunque el agente
+en sí sea público.
+
+> ⚠️ `createAgentesAdminRoutes` **no** vuelve a comprobar por su cuenta que
+> estás en una zona protegida — confía en que tú lo montaste dentro de la
+> tuya (donde ya exiges sesión de administrador) y en tu `requireAdmin`. Si
+> lo montas en una ruta pública, queda tan expuesto como cualquier otra
+> ruta pública sin protección.
+
+### El componente — uno solo, en el layout raíz
+
+```tsx
+// app/layout.tsx (Next.js App Router)
+import { MultiAgentChat } from "bivoo-agent-widget/next";
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <MultiAgentChat onOpenSettings={(slug) => abrirTuModal(slug)} />
+      </body>
+    </html>
+  );
+}
+```
+
+`MultiAgentChat` pregunta a `/api/agentes` (o al `listEndpoint` que le
+pases), mira la ruta actual con `usePathname()`, y monta el `<AgentChat>`
+que corresponde — o ninguno, si no hay agente para esa ruta. Vive en
+`bivoo-agent-widget/next` y no en el entry principal porque usa
+`next/navigation`: si no usas Next.js, la pieza reutilizable es
+`agenteParaRuta` (también exportado desde `bivoo-agent-widget/server`) —
+tú decides cómo obtener la ruta actual y montas `<AgentChat>` a mano con
+el resultado.
+
+### Quién ve qué: `audience`
+
+Cada agente declara su `audience` al crearse:
+
+| `audience` | Quién lo ve | Qué recibe el gateway sobre quien pregunta |
+|---|---|---|
+| `"staff"` | Solo dentro de tu zona protegida (`requireAdmin` en `true`) | Lo que le mandes en `identidad()` — normalmente permisos/rol de esa sesión |
+| `"publico"` | Cualquiera | Igual, pero **nunca** debería llevar permisos internos — ni aunque quien pregunte esté logueado como administrador en otra pestaña |
+
+Este paquete no trae un sistema de roles: `identidad()` es tu hueco para
+calcular esas cabeceras con lo que ya uses en tu app.
+
+```ts
+export const { GET, POST } = createAgentePublicoRoute({
+  identidad: async (req, audience) => {
+    const sesion = await miSesion(req);
+    // audience === "publico" aquí siempre — nunca mandes permisos internos.
+    return sesion ? { "x-user-key": `user-${sesion.id}` } : {};
+  },
+});
+```
+
+### Dejar una ruta sin ningún agente
+
+Cada acceso tiene `excludePaths` (rutas separadas por comas) además de su
+`mountPath`. Es lo que resuelve "toda la tienda **menos** el checkout":
+
+```
+mountPath:     "/"
+excludePaths:  "/checkout,/pago"
+```
+
+Un agente excluido de una ruta se aparta y deja que gane el siguiente que
+encaje, si hay alguno — no bloquea la ruta para los demás.
+
+### Tu propio almacén
+
+`almacenAgentesDeArchivo()` (un JSON en el proyecto, sin cifrar — aquí no
+hay secretos, solo nombre/ruta/audiencia) es el valor por defecto. Para tu
+base de datos, pásale tu propio `AlmacenAgentes`:
+
+```ts
+export const { GET, POST, PUT, DELETE } = createAgentesAdminRoutes({
+  requireAdmin: miPropiaComprobacion,
+  almacenAgentes: {
+    async listar() { return miDb.agentAccess.findMany(); },
+    async crear(datos) { return miDb.agentAccess.create({ data: datos }); },
+    async actualizar(slug, cambios) {
+      return miDb.agentAccess.update({ where: { slug }, data: cambios }).catch(() => null);
+    },
+    async borrar(slug) { await miDb.agentAccess.delete({ where: { slug } }); },
+  },
+});
+```
+
+La conexión (URL, App Token, secreto) sigue siendo un `AlmacenConfig`
+aparte — el mismo que ya usa `createAgentRoutes()` — porque es un dato
+distinto: uno lleva secretos, el otro no, y no siempre conviene guardarlos
+en el mismo sitio.
+
+---
+
 ## Desarrollo de este paquete
 
 ```bash

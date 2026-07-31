@@ -21,6 +21,16 @@ export default defineConfig([
     external: ["react", "react-dom"],
   },
   {
+    // Aparte de index: importa `next/navigation`, así que solo quien lo
+    // importe explícitamente (`bivoo-agent-widget/next`) necesita Next.js
+    // instalado — el entry principal no se entera de que esto existe.
+    entry: { next: "src/next.ts" },
+    format: ["esm", "cjs"],
+    dts: true,
+    sourcemap: true,
+    external: ["react", "react-dom", "next/navigation"],
+  },
+  {
     // El módulo de servidor (route handler + almacenamiento de config): solo
     // Node — usa `fs`. Nunca lo importa el entry del navegador (index.ts),
     // así que no hay riesgo de que `fs` termine en un bundle de cliente.

@@ -42,20 +42,37 @@ function base(conexion: ConexionAgente): string {
   return conexion.gatewayUrl.replace(/\/+$/, "");
 }
 
-/** GET /api/chat (metadatos) o ?sse=1 (canal de sugerencias) — se reenvía tal cual. */
-export async function reenviarChatGet(req: Request, conexion: ConexionAgente): Promise<Response> {
+/**
+ * GET /api/chat (metadatos) o ?sse=1 (canal de sugerencias) — se reenvía
+ * tal cual.
+ *
+ * `cabecerasExtra` es el hueco para identidad: quién pregunta, con qué
+ * permisos. Este módulo no sabe nada de sesiones ni de roles — si tu app
+ * necesita que el gateway sepa eso (para responder distinto a un admin que
+ * a un visitante, por ejemplo), calcúlalo tú y pásalo aquí. Sin esto, se
+ * manda igual que siempre: solo el token.
+ */
+export async function reenviarChatGet(
+  req: Request,
+  conexion: ConexionAgente,
+  cabecerasExtra: Record<string, string> = {},
+): Promise<Response> {
   const url = new URL(req.url);
   const upstream = await fetch(`${base(conexion)}/api/chat${url.search}`, {
-    headers: { "x-app-token": conexion.appToken },
+    headers: { "x-app-token": conexion.appToken, ...cabecerasExtra },
   });
   return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });
 }
 
-/** POST /api/chat — el streaming se reenvía sin bufferizar. */
-export async function reenviarChatPost(req: Request, conexion: ConexionAgente): Promise<Response> {
+/** POST /api/chat — el streaming se reenvía sin bufferizar. Mismo `cabecerasExtra` que reenviarChatGet. */
+export async function reenviarChatPost(
+  req: Request,
+  conexion: ConexionAgente,
+  cabecerasExtra: Record<string, string> = {},
+): Promise<Response> {
   const upstream = await fetch(`${base(conexion)}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-app-token": conexion.appToken },
+    headers: { "Content-Type": "application/json", "x-app-token": conexion.appToken, ...cabecerasExtra },
     body: await req.text(),
   });
   return new Response(upstream.body, { status: upstream.status, headers: upstream.headers });

@@ -7,3 +7,7 @@
  */
 export { AgentChat, AgentOrb, tiempoRelativo, agruparPorFecha, IDLE_MOODS } from "./AgentChat";
 export type { AgentChatProps, OrbMood } from "./AgentChat";
+
+// `MultiAgentChat` (varios agentes por configuración) NO se exporta desde
+// aquí: usa `next/navigation`, y este entry es para cualquier framework
+// que compile JSX, no solo Next.js. Vive en `bivoo-agent-widget/next`.
