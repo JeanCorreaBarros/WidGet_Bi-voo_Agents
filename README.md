@@ -19,6 +19,66 @@ no un detalle: sin el proxy, el widget no tiene con quién hablar.
 
 ## 1. El proxy (obligatorio, sea cual sea tu frontend)
 
+### Si tu backend es Next.js: una línea, cero código propio
+
+```ts
+// app/api/agent/[...ruta]/route.ts
+export { GET, POST, PUT } from "bivoo-agent-widget/server";
+```
+
+Con eso, el chat ya funciona (usando `AGENT_GATEWAY_URL` y `AGENT_APP_TOKEN`
+del entorno, igual que siempre). Y el widget gana un panel de Conexión de
+verdad — URL del gateway, App Token, "Probar conexión", sincronizar tu
+Swagger — sin que hayas escrito ni una ruta a mano.
+
+Ese panel queda bloqueado por defecto (nadie puede reconfigurar el agente
+sin que tú lo permitas). Para desbloquearlo, dile cómo reconoces a un
+administrador en TU app — es la única pieza que este paquete no puede
+adivinar solo:
+
+```ts
+// app/api/agent/[...ruta]/route.ts
+import { createAgentRoutes } from "bivoo-agent-widget/server";
+
+export const { GET, POST, PUT } = createAgentRoutes({
+  requireAdmin: async (req) => {
+    // tu propia comprobación de sesión/rol — lo que ya uses en tu app
+    const sesion = await miSesion(req);
+    return sesion?.role === "ADMIN";
+  },
+});
+```
+
+La configuración se guarda en un archivo del propio proyecto
+(`.bivoo-agent.json` — añádelo a tu `.gitignore`). Si defines
+`BIVOO_CONFIG_KEY` (32 bytes en base64) en el entorno, se guarda cifrada.
+Si necesitas guardarla en tu propia base de datos en vez de un archivo,
+pásale tu propio almacén:
+
+```ts
+export const { GET, POST, PUT } = createAgentRoutes({
+  requireAdmin: async (req) => (await miSesion(req))?.role === "ADMIN",
+  almacen: {
+    async leer() { return await miDb.agentConfig.findMany(); },
+    async guardar(config) { await miDb.agentConfig.upsertMany(config); },
+  },
+});
+```
+
+**¿Varios agentes?** (uno para el panel, otro para la tienda, como en la
+mayoría de integraciones reales) — monta la ruta dos veces, con un
+`agente` distinto en cada una:
+
+```ts
+// app/api/agent-admin/[...ruta]/route.ts
+export const { GET, POST, PUT } = createAgentRoutes({ agente: "admin", requireAdmin });
+
+// app/api/agent-tienda/[...ruta]/route.ts
+export const { GET, POST, PUT } = createAgentRoutes({ agente: "tienda", requireAdmin });
+```
+
+### Si no usas Next.js (o quieres control total)
+
 Tu servidor necesita responder a tres cosas, todas en el mismo endpoint
 (por ejemplo `/api/agent`):
 

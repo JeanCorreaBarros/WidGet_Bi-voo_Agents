@@ -21,6 +21,16 @@ export default defineConfig([
     external: ["react", "react-dom"],
   },
   {
+    // El módulo de servidor (route handler + almacenamiento de config): solo
+    // Node — usa `fs`. Nunca lo importa el entry del navegador (index.ts),
+    // así que no hay riesgo de que `fs` termine en un bundle de cliente.
+    entry: { server: "src/server/index.ts" },
+    format: ["esm", "cjs"],
+    platform: "node",
+    dts: true,
+    sourcemap: true,
+  },
+  {
     entry: { standalone: "src/standalone.tsx" },
     format: ["iife"],
     platform: "browser",
